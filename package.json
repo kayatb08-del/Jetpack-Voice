@@ -1,0 +1,13 @@
+{
+  "name": "jetpack-voice-hero",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Jetpack Voice Hero game with leaderboard backend",
+  "main": "leaderboard-server.js",
+  "scripts": {
+    "start": "node leaderboard-server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
