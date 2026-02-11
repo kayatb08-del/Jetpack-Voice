@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jetpack Voice Hero</title>
+  <style>
+    :root {
+      --ui-shadow: 1px 1px 3px #000;
+      --card-bg: rgba(0, 0, 0, 0.32);
+      --hud-btn-bg: rgba(15, 23, 42, 0.65);
+    }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #87ceeb;
+      font-family: Arial, sans-serif;
+    }
+
+    canvas {
+      display: block;
+      margin: 0 auto;
+      background: linear-gradient(#87ceeb, #e0f7ff);
+      max-width: 100vw;
+      max-height: 100vh;
+    }
+
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #fff;
+      font-weight: bold;
+      text-shadow: var(--ui-shadow);
+      z-index: 10;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    #gameMessage {
+      position: absolute;
+      top: 56px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #fff;
+      font-weight: bold;
+      text-shadow: var(--ui-shadow);
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    #sessionStats {
+      position: absolute;
+      left: 50%;
+      top: 18%;
+      transform: translateX(-50%);
+      width: min(360px, 84vw);
+      color: #fff;
+      background: rgba(0, 0, 0, 0.56);
+      border-radius: 12px;
+      padding: 14px;
+      text-shadow: var(--ui-shadow);
+      z-index: 11;
+      display: none;
+      line-height: 1.45;
+    }
+
+    #sessionStats strong {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 18px;
+    }
+
+    #leaderboard {
+      position: absolute;
+      right: 12px;
+      top: 10px;
+      min-width: 170px;
+      max-width: 40vw;
+      color: #fff;
+      background: var(--card-bg);
+      border-radius: 12px;
+      padding: 10px;
+      text-shadow: var(--ui-shadow);
+      z-index: 10;
+      font-size: 12px;
+      line-height: 1.4;
+      backdrop-filter: blur(2px);
+    }
+
+    #leaderboard strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+
+    #leaderboard ol {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    #leaderboard li {
+      margin: 2px 0;
+    }
+
+    .menu-btn {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 15px 30px;
+      font-size: 20px;
+      border: none;
+      border-radius: 12px;
+      background: #ff6600;
+      color: #fff;
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    .hud-btn {
+      position: absolute;
+      top: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      color: #fff;
+      background: var(--hud-btn-bg);
+      border-radius: 8px;
+      font-size: 13px;
+      padding: 8px 10px;
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    #pauseBtn {
+      left: 10px;
+    }
+
+    #muteBtn {
+      left: 86px;
+    }
+
+    @media (max-width: 700px) {
+      #leaderboard {
+        left: 10px;
+        right: auto;
+        top: 48px;
+        max-width: 56vw;
+      }
+
+      #ui {
+        top: 12px;
+        font-size: 13px;
+      }
+
+      #gameMessage {
+        top: 42px;
+        font-size: 14px;
+      }
+
+      .menu-btn {
+        font-size: 18px;
+        padding: 12px 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="ui"></div>
+  <div id="gameMessage"></div>
+  <div id="sessionStats"></div>
+  <div id="leaderboard"><strong>Leaderboard</strong><div>Loading...</div></div>
+  <button id="pauseBtn" class="hud-btn">Pause (P)</button>
+  <button id="muteBtn" class="hud-btn">Mute: Off (M)</button>
+  <button id="startBtn" class="menu-btn" style="top:40%;">START</button>
+  <button id="restartBtn" class="menu-btn" style="top:50%; display:none;">RESTART</button>
+  <canvas id="gameCanvas" width="400" height="600"></canvas>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const startBtn = document.getElementById("startBtn");
+    const restartBtn = document.getElementById("restartBtn");
+    const pauseBtn = document.getElementById("pauseBtn");
+    const muteBtn = document.getElementById("muteBtn");
+    const ui = document.getElementById("ui");
+    const gameMessage = document.getElementById("gameMessage");
+    const sessionStatsEl = document.getElementById("sessionStats");
+    const leaderboardEl = document.getElementById("leaderboard");
+
+    const LEADERBOARD_KEY = "leaderboardLocal";
+    const LEADERBOARD_API = localStorage.getItem("leaderboardApiUrl") || "/leaderboard";
+    const LAST_PLAYER_NAME_KEY = "lastPlayerName";
+
+    let gameState = "menu";
+    let isPaused = false;
+    let isMuted = false;
+    let animationRunning = false;
+
+    let score = 0;
+    let highScore = Number(localStorage.getItem("highScore")) || 0;
+    let leaderboardScores = [];
+
+    let gravity = 0.5;
+    let micVolume = 0;
+    let gameSpeed = 3;
+    let frameCount = 0;
+
+    let enemies = [];
+    let coins = [];
+    let powerUps = [];
+    let enemyProjectiles = [];
+    let playerShots = [];
+    let explosionParticles = [];
+    let clouds = [];
+
+    let boss = null;
+    let nextBossScore = 1500;
+
+    let audioCtx = null;
+    let analyser = null;
+    let dataArray = null;
+
+    let screenShake = 0;
+    let messageTimer = 0;
+
+    let powerUpPickupCooldown = 0;
+    let bossRewardTimer = 0;
+
+    let stats = {
+      startMs: 0,
+      endMs: 0,
+      enemiesDodged: 0,
+      coinsCollected: 0,
+      hitsTaken: 0,
+      bossesDefeated: 0
+    };
+
+    const player = {
+      x: 100,
+      y: 300,
+      width: 40,
+      height: 40,
+      velocity: 0,
+      health: 100,
+      shield: false,
+      shieldTimer: 0,
+      fireCooldown: 0
+    };
+
+    function setBoost(on) {
+      if (on) {
+        micVolume = Math.max(micVolume, 0.5);
+      } else if (!analyser) {
+        micVolume = 0;
+      }
+    }
+
+    function togglePause() {
+      if (gameState !== "playing") return;
+      isPaused = !isPaused;
+      pauseBtn.textContent = isPaused ? "Resume (P)" : "Pause (P)";
+      showMessage(isPaused ? "Paused" : "Resumed", 60);
+    }
+
+    function toggleMute() {
+      isMuted = !isMuted;
+      muteBtn.textContent = "Mute: " + (isMuted ? "On (M)" : "Off (M)");
+    }
+
+    function showMessage(text, durationFrames) {
+      gameMessage.textContent = text;
+      messageTimer = durationFrames;
+    }
+
+    canvas.addEventListener("touchstart", () => setBoost(true));
+    canvas.addEventListener("touchend", () => setBoost(false));
+    canvas.addEventListener("mousedown", () => setBoost(true));
+    window.addEventListener("mouseup", () => setBoost(false));
+
+    window.addEventListener("keydown", (e) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        setBoost(true);
+      }
+      if (e.code === "KeyP") {
+        e.preventDefault();
+        togglePause();
+      }
+      if (e.code === "KeyM") {
+        e.preventDefault();
+        toggleMute();
+      }
+    });
+
+    window.addEventListener("keyup", (e) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        setBoost(false);
+      }
+    });
+
+    startBtn.onclick = startGame;
+    restartBtn.onclick = restartGame;
+    pauseBtn.onclick = togglePause;
+    muteBtn.onclick = toggleMute;
+
+    async function initMic() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || analyser) return;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(stream);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+        source.connect(analyser);
+      } catch (_) {
+        // Mic denied; fallback controls still work.
+      }
+    }
+
+    function ensureAudioCtx() {
+      if (!audioCtx) {
+        try {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (_) {
+          return null;
+        }
+      }
+      return audioCtx;
+    }
+
+    function playTone(freq, durationMs, gainValue) {
+      if (isMuted) return;
+      const ac = ensureAudioCtx();
+      if (!ac) return;
+      const osc = ac.createOscillator();
+      const gain = ac.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = freq;
+      gain.gain.value = gainValue;
+      osc.connect(gain);
+      gain.connect(ac.destination);
+      const now = ac.currentTime;
+      gain.gain.setValueAtTime(gainValue, now);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + durationMs / 1000);
+      osc.start(now);
+      osc.stop(now + durationMs / 1000);
+    }
+
+    function initClouds() {
+      clouds = [];
+      for (let i = 0; i < 8; i++) {
+        clouds.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * (canvas.height * 0.65),
+          r: 18 + Math.random() * 24,
+          speed: 0.3 + Math.random() * 0.7
+        });
+      }
+    }
+
+    function resetStats() {
+      stats = {
+        startMs: Date.now(),
+        endMs: 0,
+        enemiesDodged: 0,
+        coinsCollected: 0,
+        hitsTaken: 0,
+        bossesDefeated: 0
+      };
+    }
+
+    function startLoop() {
+      if (!animationRunning) {
+        animationRunning = true;
+        requestAnimationFrame(update);
+      }
+    }
+
+    function startGame() {
+      gameState = "playing";
+      isPaused = false;
+      startBtn.style.display = "none";
+      restartBtn.style.display = "none";
+      sessionStatsEl.style.display = "none";
+
+      score = 0;
+      frameCount = 0;
+      gameSpeed = 3;
+      nextBossScore = 1500;
+      bossRewardTimer = 0;
+      screenShake = 0;
+      powerUpPickupCooldown = 0;
+
+      player.y = 300;
+      player.velocity = 0;
+      player.health = 100;
+      player.shield = false;
+      player.shieldTimer = 0;
+      player.fireCooldown = 0;
+
+      enemies = [];
+      coins = [];
+      powerUps = [];
+      enemyProjectiles = [];
+      playerShots = [];
+      explosionParticles = [];
+      boss = null;
+
+      resetStats();
+      initClouds();
+      initMic();
+      showMessage("Fly safe, pilot", 90);
+      startLoop();
+    }
+
+    function restartGame() {
+      startGame();
+    }
+
+    function getDifficulty() {
+      return Math.min(1 + score / 1200, 4);
+    }
+
+    function spawnEnemy() {
+      enemies.push({
+        x: canvas.width + 10,
+        y: Math.random() * (canvas.height - 30),
+        size: 30,
+        type: Math.random() < 0.52 ? "bird" : "rock"
+      });
+    }
+
+    function spawnCoin() {
+      coins.push({
+        x: canvas.width + 10,
+        y: Math.random() * (canvas.height - 20),
+        size: 20
+      });
+    }
+
+    function canSpawnPowerUp(y) {
+      if (powerUps.length >= 2) return false;
+      for (let i = 0; i < powerUps.length; i++) {
+        if (Math.abs(powerUps[i].y - y) < 80) return false;
+      }
+      return true;
+    }
+
+    function spawnPowerUp(type) {
+      if (powerUpPickupCooldown > 0) return;
+      const y = Math.random() * (canvas.height - 26);
+      if (!canSpawnPowerUp(y)) return;
+      powerUps.push({
+        x: canvas.width + 10,
+        y,
+        size: 26,
+        type,
+        pulse: Math.random() * Math.PI * 2
+      });
+    }
+
+    function spawnBoss() {
+      boss = {
+        x: canvas.width + 20,
+        y: 180,
+        width: 120,
+        height: 120,
+        health: 220,
+        maxHealth: 220,
+        vy: 1.2,
+        shootCooldown: 90
+      };
+      showMessage("Boss incoming", 120);
+      playTone(220, 220, 0.08);
+    }
+
+    function spawnBossProjectile() {
+      if (!boss) return;
+      enemyProjectiles.push({
+        x: boss.x + 20,
+        y: boss.y + boss.height * (0.35 + Math.random() * 0.3),
+        w: 16,
+        h: 6,
+        vx: -(4.2 + getDifficulty() * 0.55)
+      });
+    }
+
+    function spawnPlayerShot() {
+      playerShots.push({
+        x: player.x + player.width,
+        y: player.y + player.height * 0.52,
+        w: 16,
+        h: 5,
+        vx: 8
+      });
+    }
+
+    function explode(x, y) {
+      for (let i = 0; i < 30; i++) {
+        explosionParticles.push({
+          x,
+          y,
+          dx: (Math.random() - 0.5) * 6,
+          dy: (Math.random() - 0.5) * 6,
+          life: 50
+        });
+      }
+    }
+
+    function drawRoundedRect(x, y, w, h, r) {
+      const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+      ctx.beginPath();
+      if (typeof ctx.roundRect === "function") {
+        ctx.roundRect(x, y, w, h, radius);
+      } else {
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + w - radius, y);
+        ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+        ctx.lineTo(x + w, y + h - radius);
+        ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+        ctx.lineTo(x + radius, y + h);
+        ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+      }
+      ctx.closePath();
+    }
+
+    function drawCloud(cloud) {
+      ctx.fillStyle = "rgba(255, 255, 255, 0.62)";
+      ctx.beginPath();
+      ctx.arc(cloud.x, cloud.y, cloud.r * 0.6, 0, Math.PI * 2);
+      ctx.arc(cloud.x + cloud.r * 0.7, cloud.y + 2, cloud.r * 0.5, 0, Math.PI * 2);
+      ctx.arc(cloud.x - cloud.r * 0.7, cloud.y + 3, cloud.r * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawPlayerCharacter(x, y, w, h, thrust) {
+      ctx.fillStyle = "#d7263d";
+      drawRoundedRect(x + 6, y + 4, w - 10, h - 8, 10);
+      ctx.fill();
+
+      ctx.fillStyle = "#9be7ff";
+      ctx.beginPath();
+      ctx.ellipse(x + w - 12, y + 14, 8, 6, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#4a4a4a";
+      ctx.fillRect(x, y + 10, 10, h - 20);
+
+      if (thrust > 0.12) {
+        const flameLen = 10 + thrust * 16;
+        ctx.fillStyle = "#ff7a00";
+        ctx.beginPath();
+        ctx.moveTo(x, y + h / 2);
+        ctx.lineTo(x - flameLen, y + h / 2 - 7);
+        ctx.lineTo(x - flameLen, y + h / 2 + 7);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = "#ffd166";
+        ctx.beginPath();
+        ctx.moveTo(x - 2, y + h / 2);
+        ctx.lineTo(x - flameLen + 6, y + h / 2 - 4);
+        ctx.lineTo(x - flameLen + 6, y + h / 2 + 4);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      if (player.shield) {
+        ctx.strokeStyle = "rgba(80, 190, 255, 0.85)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x + w / 2, y + h / 2, w * 0.72, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function drawBirdEnemy(e) {
+      const x = e.x;
+      const y = e.y;
+      const s = e.size;
+      const wingSwing = Math.sin((frameCount + x) * 0.16) * 3;
+
+      ctx.fillStyle = "#1f2937";
+      ctx.beginPath();
+      ctx.ellipse(x + s * 0.45, y + s * 0.55, s * 0.36, s * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#111827";
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.4, y + s * 0.5);
+      ctx.lineTo(x + s * 0.1, y + s * 0.28 + wingSwing);
+      ctx.lineTo(x + s * 0.2, y + s * 0.62);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#f59e0b";
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.78, y + s * 0.56);
+      ctx.lineTo(x + s * 0.98, y + s * 0.48);
+      ctx.lineTo(x + s * 0.8, y + s * 0.66);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(x + s * 0.66, y + s * 0.46, s * 0.08, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawRockEnemy(e) {
+      const x = e.x;
+      const y = e.y;
+      const s = e.size;
+
+      ctx.fillStyle = "#6b7280";
+      ctx.beginPath();
+      ctx.moveTo(x + s * 0.2, y + s * 0.1);
+      ctx.lineTo(x + s * 0.78, y + s * 0.04);
+      ctx.lineTo(x + s * 0.96, y + s * 0.4);
+      ctx.lineTo(x + s * 0.82, y + s * 0.9);
+      ctx.lineTo(x + s * 0.28, y + s * 0.96);
+      ctx.lineTo(x + s * 0.04, y + s * 0.54);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#4b5563";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    function drawBossCharacter(b) {
+      const x = b.x;
+      const y = b.y;
+      const w = b.width;
+      const h = b.height;
+
+      ctx.fillStyle = "#5b21b6";
+      drawRoundedRect(x, y + 8, w, h - 16, 18);
+      ctx.fill();
+
+      ctx.fillStyle = "#a78bfa";
+      ctx.fillRect(x + 18, y + 24, w - 36, h - 54);
+
+      ctx.fillStyle = "#ef4444";
+      ctx.beginPath();
+      ctx.arc(x + 40, y + 50, 7, 0, Math.PI * 2);
+      ctx.arc(x + w - 40, y + 50, 7, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#312e81";
+      ctx.beginPath();
+      ctx.moveTo(x + 20, y + 8);
+      ctx.lineTo(x + 34, y - 18);
+      ctx.lineTo(x + 46, y + 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x + w - 20, y + 8);
+      ctx.lineTo(x + w - 34, y - 18);
+      ctx.lineTo(x + w - 46, y + 8);
+      ctx.closePath();
+      ctx.fill();
+
+      const hpRatio = Math.max(0, b.health / b.maxHealth);
+      ctx.fillStyle = "#3b0764";
+      ctx.fillRect(x, y - 12, w, 6);
+      ctx.fillStyle = "#ec4899";
+      ctx.fillRect(x, y - 12, w * hpRatio, 6);
+    }
+
+    function drawPowerUp(p) {
+      const x = p.x;
+      const y = p.y;
+      const s = p.size;
+      const pulse = 1 + Math.sin(frameCount * 0.16 + p.pulse) * 0.08;
+
+      ctx.save();
+      ctx.translate(x + s / 2, y + s / 2);
+      ctx.scale(pulse, pulse);
+      ctx.translate(-(x + s / 2), -(y + s / 2));
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = p.type === "shield" ? "#4cc9f0" : "#86efac";
+
+      if (p.type === "shield") {
+        ctx.strokeStyle = "#4cc9f0";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x + s / 2, y + s / 2, s * 0.42, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(76, 201, 240, 0.25)";
+        ctx.beginPath();
+        ctx.arc(x + s / 2, y + s / 2, s * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillStyle = "#2ecc71";
+        drawRoundedRect(x, y, s, s, 6);
+        ctx.fill();
+        ctx.fillStyle = "#fff";
+        ctx.fillRect(x + s * 0.42, y + s * 0.22, s * 0.16, s * 0.56);
+        ctx.fillRect(x + s * 0.22, y + s * 0.42, s * 0.56, s * 0.16);
+      }
+      ctx.restore();
+    }
+
+    function drawProjectile(b) {
+      ctx.fillStyle = "#ef4444";
+      drawRoundedRect(b.x, b.y, b.w, b.h, 3);
+      ctx.fill();
+    }
+
+    function drawPlayerShot(s) {
+      ctx.fillStyle = "#38bdf8";
+      drawRoundedRect(s.x, s.y, s.w, s.h, 3);
+      ctx.fill();
+    }
+
+    function readMicBoost() {
+      if (!analyser || !dataArray) return;
+      analyser.getByteTimeDomainData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const normalized = (dataArray[i] - 128) / 128;
+        sum += Math.abs(normalized);
+      }
+      const average = sum / dataArray.length;
+      micVolume = Math.max(micVolume * 0.75, Math.min(average * 4, 1));
+    }
+
+    function renderLeaderboard() {
+      if (!leaderboardScores.length) {
+        leaderboardEl.innerHTML = "<strong>Leaderboard</strong><div>No scores yet</div>";
+        return;
+      }
+
+      let items = "";
+      for (let i = 0; i < leaderboardScores.length; i++) {
+        const row = leaderboardScores[i];
+        items += "<li>" + escapeHtml(row.name) + " - " + row.score + "</li>";
+      }
+
+      leaderboardEl.innerHTML = "<strong>Leaderboard</strong><ol>" + items + "</ol>";
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function getLocalLeaderboard() {
+      return JSON.parse(localStorage.getItem(LEADERBOARD_KEY) || "[]");
+    }
+
+    function setLocalLeaderboard(rows) {
+      localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(rows));
+    }
+
+    async function loadLeaderboard() {
+      if (!LEADERBOARD_API) {
+        leaderboardScores = getLocalLeaderboard().slice(0, 5);
+        renderLeaderboard();
+        return;
+      }
+
+      try {
+        const response = await fetch(LEADERBOARD_API, { method: "GET" });
+        if (!response.ok) throw new Error("Leaderboard fetch failed");
+        const rows = await response.json();
+        leaderboardScores = (Array.isArray(rows) ? rows : [])
+          .map((r) => ({ name: String(r.name || "Pilot"), score: Number(r.score || 0) }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 5);
+        renderLeaderboard();
+      } catch (_) {
+        leaderboardScores = getLocalLeaderboard().slice(0, 5);
+        renderLeaderboard();
+      }
+    }
+
+    async function submitScore(finalScore) {
+      const lastName = localStorage.getItem(LAST_PLAYER_NAME_KEY) || "Pilot";
+      const raw = prompt("Enter your name for leaderboard", lastName);
+      const name = (raw || lastName || "Pilot").trim().slice(0, 14) || "Pilot";
+      localStorage.setItem(LAST_PLAYER_NAME_KEY, name);
+
+      const scoreRow = { name, score: Math.floor(finalScore) };
+
+      if (!LEADERBOARD_API) {
+        const rows = getLocalLeaderboard();
+        rows.push(scoreRow);
+        rows.sort((a, b) => b.score - a.score);
+        setLocalLeaderboard(rows.slice(0, 20));
+        leaderboardScores = rows.slice(0, 5);
+        renderLeaderboard();
+        return;
+      }
+
+      try {
+        const postResponse = await fetch(LEADERBOARD_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(scoreRow)
+        });
+        if (!postResponse.ok) throw new Error("Leaderboard submit failed");
+        await loadLeaderboard();
+      } catch (_) {
+        const rows = getLocalLeaderboard();
+        rows.push(scoreRow);
+        rows.sort((a, b) => b.score - a.score);
+        setLocalLeaderboard(rows.slice(0, 20));
+        leaderboardScores = rows.slice(0, 5);
+        renderLeaderboard();
+      }
+    }
+
+    function drawBackdrop(difficulty) {
+      for (let i = 0; i < clouds.length; i++) {
+        const c = clouds[i];
+        c.x -= c.speed + difficulty * 0.12;
+        if (c.x < -50) {
+          c.x = canvas.width + 40;
+          c.y = Math.random() * (canvas.height * 0.65);
+        }
+        drawCloud(c);
+      }
+    }
+
+    function applyHit(amount, x, y) {
+      player.health -= amount;
+      stats.hitsTaken += 1;
+      explode(x, y);
+      screenShake = Math.max(screenShake, 8);
+      playTone(120, 120, 0.06);
+    }
+
+    function update() {
+      if (gameState !== "playing") {
+        animationRunning = false;
+        return;
+      }
+
+      requestAnimationFrame(update);
+      frameCount += 1;
+
+      if (messageTimer > 0) {
+        messageTimer -= 1;
+        if (messageTimer <= 0) gameMessage.textContent = "";
+      }
+
+      if (isPaused) {
+        ctx.save();
+        ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 28px Arial";
+        ctx.fillText("PAUSED", 140, 280);
+        ctx.restore();
+        return;
+      }
+
+      readMicBoost();
+      const difficulty = getDifficulty();
+      gameSpeed += 0.00045 + difficulty * 0.00002;
+      score += 0.1 + difficulty * 0.015;
+
+      if (screenShake > 0) screenShake *= 0.84;
+      const sx = screenShake > 0.2 ? (Math.random() - 0.5) * screenShake : 0;
+      const sy = screenShake > 0.2 ? (Math.random() - 0.5) * screenShake : 0;
+
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, sx, sy);
+      ctx.clearRect(-20, -20, canvas.width + 40, canvas.height + 40);
+
+      drawBackdrop(difficulty);
+
+      if (score >= nextBossScore && !boss) {
+        spawnBoss();
+        nextBossScore += 1800;
+      }
+
+      const enemyChance = Math.min(0.015 + difficulty * 0.008, 0.065) * (boss ? 0.55 : 1);
+      const coinChance = Math.max(0.016 - difficulty * 0.0017, 0.006);
+      if (Math.random() < enemyChance) spawnEnemy();
+      if (Math.random() < coinChance) spawnCoin();
+
+      if (powerUpPickupCooldown > 0) powerUpPickupCooldown -= 1;
+      if (Math.random() < 0.0045 && powerUpPickupCooldown <= 0) spawnPowerUp("shield");
+      if (Math.random() < 0.0038 && powerUpPickupCooldown <= 0 && player.health < 95) spawnPowerUp("health");
+
+      if (player.shieldTimer > 0) {
+        player.shieldTimer -= 1;
+        player.shield = true;
+      } else {
+        player.shield = false;
+      }
+
+      if (player.fireCooldown > 0) player.fireCooldown -= 1;
+      if (micVolume > 0.45 && player.fireCooldown <= 0) {
+        spawnPlayerShot();
+        player.fireCooldown = 14;
+        if (!isMuted && frameCount % 3 === 0) playTone(620, 35, 0.03);
+      }
+
+      player.velocity += gravity;
+      player.velocity -= micVolume * 1.5;
+      player.y += player.velocity;
+
+      if (player.y < 0) {
+        player.y = 0;
+        player.velocity = 0;
+      }
+      if (player.y > canvas.height - player.height) {
+        player.y = canvas.height - player.height;
+        player.velocity = 0;
+      }
+
+      drawPlayerCharacter(player.x, player.y, player.width, player.height, micVolume);
+
+      for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        e.x -= gameSpeed;
+
+        if (e.type === "bird") drawBirdEnemy(e);
+        else drawRockEnemy(e);
+
+        for (let j = playerShots.length - 1; j >= 0; j--) {
+          if (collideRect(playerShots[j], e)) {
+            explode(e.x, e.y);
+            enemies.splice(i, 1);
+            playerShots.splice(j, 1);
+            score += 12;
+            playTone(360, 55, 0.04);
+            break;
+          }
+        }
+
+        if (!enemies[i]) continue;
+
+        if (collide(player, e)) {
+          if (!player.shield) {
+            applyHit(18, e.x, e.y);
+          } else {
+            explode(e.x, e.y);
+            playTone(280, 50, 0.04);
+          }
+          enemies.splice(i, 1);
+          continue;
+        }
+
+        if (e.x + e.size < 0) {
+          stats.enemiesDodged += 1;
+          enemies.splice(i, 1);
+        }
+      }
+
+      for (let i = coins.length - 1; i >= 0; i--) {
+        const c = coins[i];
+        c.x -= gameSpeed;
+        ctx.fillStyle = "gold";
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, c.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (collide(player, c)) {
+          stats.coinsCollected += 1;
+          score += 50;
+          playTone(760, 55, 0.05);
+          if (boss) {
+            boss.health -= 6;
+          }
+          coins.splice(i, 1);
+          continue;
+        }
+
+        if (c.x + c.size < 0) coins.splice(i, 1);
+      }
+
+      for (let i = powerUps.length - 1; i >= 0; i--) {
+        const p = powerUps[i];
+        p.x -= gameSpeed;
+        drawPowerUp(p);
+
+        if (collide(player, p)) {
+          if (p.type === "shield") {
+            player.shieldTimer = Math.max(player.shieldTimer, 60 * 5);
+            showMessage("Shield online", 90);
+            playTone(520, 120, 0.07);
+          } else {
+            player.health = Math.min(100, player.health + 35);
+            showMessage("Health restored", 90);
+            playTone(700, 120, 0.07);
+          }
+          powerUpPickupCooldown = 180;
+          powerUps.splice(i, 1);
+          continue;
+        }
+
+        if (p.x + p.size < 0) powerUps.splice(i, 1);
+      }
+
+      for (let i = playerShots.length - 1; i >= 0; i--) {
+        const s = playerShots[i];
+        s.x += s.vx;
+        drawPlayerShot(s);
+
+        if (boss && collideRect(s, boss)) {
+          boss.health -= 5;
+          playerShots.splice(i, 1);
+          playTone(400, 45, 0.04);
+          continue;
+        }
+
+        if (s.x > canvas.width + 30) playerShots.splice(i, 1);
+      }
+
+      if (boss) {
+        boss.x = Math.max(canvas.width - 170, boss.x - 0.65);
+        boss.y += boss.vy;
+
+        if (boss.y < 70 || boss.y + boss.height > canvas.height - 30) {
+          boss.vy *= -1;
+        }
+
+        boss.shootCooldown -= 1;
+        if (boss.shootCooldown <= 0) {
+          spawnBossProjectile();
+          boss.shootCooldown = Math.max(34, 84 - difficulty * 10);
+          playTone(180, 70, 0.05);
+        }
+
+        if (collide(player, boss)) {
+          applyHit(player.shield ? 0.35 : 1.2, boss.x + 20, boss.y + 40);
+        }
+
+        if (boss.health <= 0) {
+          explode(boss.x + boss.width / 2, boss.y + boss.height / 2);
+          stats.bossesDefeated += 1;
+          score += 600;
+          player.health = Math.min(100, player.health + 25);
+          player.shieldTimer = Math.max(player.shieldTimer, 60 * 4);
+          bossRewardTimer = 180;
+          showMessage("Boss defeated +600", 140);
+          playTone(900, 180, 0.08);
+          boss = null;
+        } else {
+          drawBossCharacter(boss);
+        }
+      }
+
+      for (let i = enemyProjectiles.length - 1; i >= 0; i--) {
+        const b = enemyProjectiles[i];
+        b.x += b.vx;
+        drawProjectile(b);
+
+        if (collideRect(b, player)) {
+          if (!player.shield) {
+            applyHit(10, b.x, b.y);
+          }
+          enemyProjectiles.splice(i, 1);
+          continue;
+        }
+
+        if (b.x + b.w < 0) enemyProjectiles.splice(i, 1);
+      }
+
+      for (let i = explosionParticles.length - 1; i >= 0; i--) {
+        const p = explosionParticles[i];
+        p.x += p.dx;
+        p.y += p.dy;
+        p.life -= 1;
+        ctx.fillStyle = "orange";
+        ctx.fillRect(p.x, p.y, 4, 4);
+        if (p.life <= 0) explosionParticles.splice(i, 1);
+      }
+
+      ctx.fillStyle = "#b91c1c";
+      ctx.fillRect(20, 20, 200, 20);
+      ctx.fillStyle = "#22c55e";
+      ctx.fillRect(20, 20, Math.max(0, player.health) * 2, 20);
+      ctx.strokeStyle = "#fff";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(20, 20, 200, 20);
+
+      if (bossRewardTimer > 0) {
+        bossRewardTimer -= 1;
+        ctx.fillStyle = "rgba(250, 204, 21, 0.9)";
+        ctx.font = "bold 16px Arial";
+        ctx.fillText("BOSS BONUS ACTIVE", 128, 50);
+      }
+
+      ctx.restore();
+
+      ui.textContent =
+        "Score: " + Math.floor(score) +
+        " | High Score: " + highScore +
+        " | Shield: " + (player.shield ? (player.shieldTimer / 60).toFixed(1) + "s" : "OFF") +
+        " | x" + difficulty.toFixed(1);
+
+      if (player.health <= 0) {
+        gameOver();
+      }
+    }
+
+    function buildSessionStats(finalScore) {
+      const survivedSec = Math.max(0, Math.floor((stats.endMs - stats.startMs) / 1000));
+      return (
+        "<strong>Run Summary</strong>" +
+        "<div>Score: " + finalScore + "</div>" +
+        "<div>Time Survived: " + survivedSec + "s</div>" +
+        "<div>Enemies Dodged: " + stats.enemiesDodged + "</div>" +
+        "<div>Coins Collected: " + stats.coinsCollected + "</div>" +
+        "<div>Hits Taken: " + stats.hitsTaken + "</div>" +
+        "<div>Bosses Defeated: " + stats.bossesDefeated + "</div>"
+      );
+    }
+
+    async function gameOver() {
+      if (gameState !== "playing") return;
+      gameState = "gameover";
+      stats.endMs = Date.now();
+
+      const finalScore = Math.floor(score);
+      if (finalScore > highScore) {
+        highScore = finalScore;
+        localStorage.setItem("highScore", String(highScore));
+        showMessage("New high score", 180);
+      }
+
+      sessionStatsEl.innerHTML = buildSessionStats(finalScore);
+      sessionStatsEl.style.display = "block";
+
+      explode(player.x, player.y);
+      await submitScore(finalScore);
+      restartBtn.style.display = "block";
+      pauseBtn.textContent = "Pause (P)";
+      isPaused = false;
+    }
+
+    function collide(a, b) {
+      const bw = b.width || b.size;
+      const bh = b.height || b.size;
+      return (
+        a.x < b.x + bw &&
+        a.x + a.width > b.x &&
+        a.y < b.y + bh &&
+        a.y + a.height > b.y
+      );
+    }
+
+    function collideRect(a, b) {
+      const aw = a.w || a.width || a.size;
+      const ah = a.h || a.height || a.size;
+      const bw = b.w || b.width || b.size;
+      const bh = b.h || b.height || b.size;
+      return (
+        a.x < b.x + bw &&
+        a.x + aw > b.x &&
+        a.y < b.y + bh &&
+        a.y + ah > b.y
+      );
+    }
+
+    async function initApp() {
+      await loadLeaderboard();
+      initClouds();
+    }
+
+    initApp();
+  </script>
+</body>
+</html>
